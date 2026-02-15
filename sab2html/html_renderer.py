@@ -1,0 +1,574 @@
+"""Semantic XML / parsed AST -> HTML conversion.
+
+Ports the Scheme sage->sxml function with all environment and command cases.
+This renders directly from parsed SAB structures to HTML strings.
+"""
+
+import re
+from xml.sax.saxutils import escape as _xml_escape
+
+_ILLEGAL_XML_CHARS = re.compile('[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x84\x86-\x9f]')
+
+def xml_escape(text: str) -> str:
+    return _xml_escape(_ILLEGAL_XML_CHARS.sub('\ufffd', text))
+from .sab_types import (
+    SageRecord, SageEnvr, SageCommand, SageReference,
+    SagePicture, SageFunctionSpec, SageExampleRecordMarker,
+)
+from .genera_charset import PARAGRAPH_MARKER, LINE_BREAK_MARKER
+from .binary_graphics import binary_decode_graphics
+from .svg_renderer import render_picture_to_svg
+
+# Sentinel for paragraph marker and tab-to-tab-stop
+_PARAGRAPH_MARKER = object()
+_TAB_MARKER = object()
+
+
+def render_record_to_html(record, registry=None, current_file=None):
+    """Render a SageRecord to an HTML section string."""
+    title_html = _format_record_title(record)
+    contents = _get_field(record, 'contents')
+    if contents is None:
+        contents = []
+
+    ctx = RenderContext(registry=registry, current_file=current_file, record=record)
+    body_parts = _render_content_list(contents, ctx)
+
+    return (
+        f'<section>\n'
+        f'<h1>{title_html}</h1>\n'
+        f'{body_parts}\n'
+        f'</section>\n'
+    )
+
+
+def render_records_to_html(records, index=None, registry=None, current_file=None,
+                           title="", file_attrs=None):
+    """Render a list of records to a full HTML page."""
+    parts = []
+    for i, record in enumerate(records):
+        if not isinstance(record, SageRecord):
+            continue
+        # Associate index callees with record
+        if index and i < len(index):
+            _setup_record_callees(record, index[i])
+        parts.append(render_record_to_html(record, registry, current_file))
+
+    body = '\n'.join(parts)
+    page_title = title or "SAB Document"
+
+    return (
+        f'<!DOCTYPE html>\n'
+        f'<html lang="en">\n'
+        f'<head>\n'
+        f'  <meta charset="utf-8">\n'
+        f'  <meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f'  <title>{xml_escape(page_title)}</title>\n'
+        f'  <link rel="stylesheet" href="{{{{CSS_PATH}}}}">\n'
+        f'</head>\n'
+        f'<body>\n'
+        f'<nav class="breadcrumb"><a href="{{{{INDEX_PATH}}}}">Index</a></nav>\n'
+        f'{body}\n'
+        f'</body>\n'
+        f'</html>\n'
+    )
+
+
+class RenderContext:
+    """Context for rendering, tracks current record and registry."""
+    __slots__ = ('registry', 'current_file', 'record', '_including')
+
+    def __init__(self, registry=None, current_file=None, record=None):
+        self.registry = registry
+        self.current_file = current_file
+        self.record = record
+        self._including = set()
+
+
+def _setup_record_callees(record, index_item):
+    """Extract callee info from index item and attach to record."""
+    if not isinstance(index_item, (list, tuple)) or len(index_item) < 3:
+        return
+    fields = index_item[2]
+    callees = {}
+    for fname, fval in fields:
+        if fname == 'callee-list' and isinstance(fval, list):
+            for c in fval:
+                if isinstance(c, (list, tuple)) and len(c) >= 4:
+                    callees[c[3]] = (c[1], c[2], c[0])  # (type, called_how, topic)
+    record.callees = callees
+
+
+def _get_field(record, name):
+    """Get a field value from a record's field alist."""
+    for fname, fval in record.fields:
+        if fname == name:
+            return fval
+    return None
+
+
+def _format_record_title(record):
+    """Format the title of a record for HTML."""
+    source_title = _get_field(record, 'source-title')
+    if source_title and isinstance(source_title, list) and source_title:
+        ctx = RenderContext()
+        return _render_content_list(source_title, ctx)
+    name = record.name
+    if isinstance(name, SageFunctionSpec):
+        return xml_escape(name.name)
+    return xml_escape(str(name))
+
+
+def _render_content_list(contents, ctx):
+    """Render a list of content items to HTML string."""
+    if not contents:
+        return ''
+    # Apply paragraph/tab fixup
+    processed = _fix_up_special_markup(contents)
+    parts = [_render_sage(item, ctx) for item in processed]
+    return ''.join(parts)
+
+
+def _render_sage(sage, ctx):
+    """Render a single sage object to HTML. Main dispatch function."""
+    if isinstance(sage, str):
+        return _render_text(sage)
+    if sage is None or sage == []:
+        return ''
+    if isinstance(sage, SageEnvr):
+        return _render_envr(sage, ctx)
+    if isinstance(sage, SageCommand):
+        return _render_command(sage, ctx)
+    if isinstance(sage, SageReference):
+        return _render_reference(sage, ctx)
+    if isinstance(sage, SagePicture):
+        return _render_picture(sage)
+    if isinstance(sage, SageExampleRecordMarker):
+        return '<div class="example-record-marker"></div>'
+    if sage is _PARAGRAPH_MARKER:
+        return '<br>'
+    if isinstance(sage, list):
+        return ''.join(_render_sage(item, ctx) for item in sage)
+    return xml_escape(str(sage))
+
+
+def _render_text(text):
+    """Render text, converting markers to HTML."""
+    result = xml_escape(text)
+    result = result.replace(PARAGRAPH_MARKER, '</p>\n<p>')
+    result = result.replace(LINE_BREAK_MARKER, '<br>\n')
+    return result
+
+
+def _render_envr(envr, ctx):
+    """Render an environment to HTML."""
+    content = _render_content_list(envr.contents_list, ctx)
+    name = str(envr.name).lower() if envr.name else ''
+
+    # Font environments
+    if name == 'b':
+        return f'<b>{content}</b>'
+    if name == 'bi':
+        return f'<b><i>{content}</i></b>'
+    if name == 'i':
+        return f'<i>{content}</i>'
+    if name in ('r', 'g', 'w', 'p', 's', 'f'):
+        return f'<span class="{name}">{content}</span>'
+    if name in ('k', 'm', 'ls', 't'):
+        return f'<code class="{name}">{content}</code>'
+    if name == 'c':
+        return f'<span class="smallcaps">{content}</span>'
+    if name in ('u', 'un', 'ux'):
+        return f'<span class="underline">{content}</span>'
+
+    # Structure environments
+    if name == 'example':
+        return f'<div class="example"><pre>{content}</pre></div>'
+    if name == 'display':
+        return f'<div class="display">{content}</div>'
+    if name == 'enumerate':
+        items = _extract_list_items(envr.contents_list, ctx)
+        return f'<ol class="enumerate">{items}</ol>'
+    if name == 'itemize':
+        items = _extract_list_items(envr.contents_list, ctx)
+        return f'<ul class="itemize">{items}</ul>'
+    if name == 'verbatim':
+        return f'<pre class="verbatim">{content}</pre>'
+    if name == 'description':
+        return f'<div class="description">{content}</div>'
+    if name == 'center':
+        return f'<div class="center">{content}</div>'
+    if name == 'figure':
+        return f'<div class="figure">{content}</div>'
+    if name == 'group':
+        return f'<div class="group">{content}</div>'
+    if name == 'multiple':
+        return f'<div class="multiple">{content}</div>'
+    if name == 'commentary':
+        return f'<div class="commentary">{content}</div>'
+
+    # Heading environments
+    if name == 'header':
+        return f'<h2 class="header">{content}</h2>'
+    if name == 'heading':
+        return f'<h3 class="heading">{content}</h3>'
+    if name == 'majorheading':
+        return f'<h2 class="majorheading">{content}</h2>'
+
+    # Lisp sub/superscript
+    if name in ('common-lisp:-', 'lisp:-'):
+        return f'<sub>{content}</sub>'
+    if name in ('common-lisp:+', 'lisp:+'):
+        return f'<sup>{content}</sup>'
+    if name in ('lisp:t', 'common-lisp:t'):
+        return f'<span class="true">{content}</span>'
+
+    # Format environments
+    if name in ('lisp:format', 'common-lisp:format', 'global:format'):
+        return f'<div class="format">{content}</div>'
+
+    # Tab/paragraph structure (from fixup)
+    if name == 'nex-tab-to-tab-stop':
+        return f'<span class="tab-stop">{content}</span>'
+    if name == 'nex-paragraph':
+        return f'<p>{content}</p>'
+
+    # Various other environments - render with class
+    known_classes = {
+        'quotation', 'advancednote', 'plus', 'minus', 'crossref',
+        'table', 'simpletable', 'checklist', 'equation', 'verse',
+        'text', 'level', 'flushright', 'flushleft', 'inputexample',
+        'fileexample', 'programexample', 'outputexample', 'activeexample',
+        'box', 'subheading', 'subsubheading', 'captionenv',
+        'common-lisp:block', 'lisp:block', 'c-description',
+        'bar', 'old-bar-environment', 'largestyle', 'titlestyle',
+        'transparent', 'layerederrorenv', 'lisp:float', 'fullpagefigure',
+        'fullpagetable',
+    }
+    if name in known_classes:
+        return f'<div class="{xml_escape(name)}">{content}</div>'
+
+    # Unknown environment
+    return f'<div class="unknown-env" data-name="{xml_escape(name)}">{content}</div>'
+
+
+def _extract_list_items(contents, ctx):
+    """Extract list items from contents, using paragraph breaks as item separators."""
+    processed = _fix_up_special_markup(contents)
+    items = []
+    current = []
+    for item in processed:
+        if isinstance(item, SageEnvr) and str(item.name) == 'nex-paragraph':
+            if current:
+                items.append(''.join(current))
+                current = []
+            items.append(_render_content_list(item.contents_list, ctx))
+        else:
+            current.append(_render_sage(item, ctx))
+    if current:
+        items.append(''.join(current))
+
+    if not items:
+        return _render_content_list(contents, ctx)
+
+    return '\n'.join(f'<li>{item}</li>' for item in items if item.strip())
+
+
+def _render_command(cmd, ctx):
+    """Render a command to HTML."""
+    name = str(cmd.name) if cmd.name else ''
+
+    if name == 'em':
+        return '\u2014'  # em dash
+    if name == 'force-line-break':
+        return '<br>'
+    if name == 'literal-space':
+        return ' '
+    if name == 'permit-word-break':
+        return '\u200b'  # zero-width space
+    if name == 'ignore-white-space':
+        return ''
+    if name == 'tab-to-tab-stop':
+        return '<span class="tab-stop"></span>'
+
+    if name == 'subsection':
+        param_text = _extract_param_text(cmd.parameter)
+        return f'<h3>{param_text}</h3>'
+
+    if name == 'blankspace':
+        return _render_blankspace(cmd.parameter)
+
+    if name == 'tag':
+        anchor = _extract_param_text(cmd.parameter)
+        return f'<a id="{xml_escape(anchor)}" class="tag"></a>'
+
+    if name == 'label':
+        anchor = _extract_param_text(cmd.parameter)
+        return f'<a id="{xml_escape(anchor)}" class="label"></a>'
+
+    if name == 'ref':
+        target = _extract_param_text(cmd.parameter)
+        return f'<a href="#{xml_escape(target)}">{xml_escape(target)}</a>'
+
+    if name == 'index':
+        return ''  # Index entries are invisible in HTML
+
+    if name == 'l':
+        param_text = _extract_param_text(cmd.parameter)
+        return f'<code>{xml_escape(param_text)}</code>'
+
+    if name == 'value':
+        param_text = _extract_param_text(cmd.parameter)
+        return f'<var>{xml_escape(param_text)}</var>'
+
+    if name == 'caption':
+        param_text = _extract_param_text(cmd.parameter)
+        return f'<div class="caption">{xml_escape(param_text)}</div>'
+
+    if name == 'newpage':
+        return '<hr class="page-break">'
+
+    # Various commands that we render as nothing or with class
+    silent_commands = {
+        'indexsecondary', 'tabdivide', 'permanentstring',
+        'collect-centering', 'collect-right-flushing',
+        'dynamic-left-margin', 'plainheadingsnow', 'plainheadings',
+        'pagefooting', 'pageheading', 'pageref', 'blocklabel',
+        'hinge', 'make', 'tabclear', 'tabset',
+        'endexamplecompiledprologue', 'replicate-pattern',
+        'simpletablespecs', 'dictionarytabs', 'note', 'bar',
+        'abbreviation-period', 'missing-special-character',
+        'layerederror', 'include', 'lisp:case',
+        'common-lisp:string', 'lisp:string',
+    }
+    if name in silent_commands:
+        return ''
+
+    # Unknown command
+    return ''
+
+
+def _render_blankspace(parameter):
+    """Render a blankspace command to a sized div."""
+    if not parameter:
+        return '<div class="blankspace" style="height: 1em;"></div>'
+
+    try:
+        el = parameter
+        if isinstance(el, list) and el:
+            el = el[0]
+        if isinstance(el, list):
+            if len(el) == 3:
+                count, unit = el[1], el[2]
+            elif len(el) == 2:
+                count, unit = el[0], el[1]
+            else:
+                return '<div class="blankspace" style="height: 1em;"></div>'
+        else:
+            return '<div class="blankspace" style="height: 1em;"></div>'
+
+        unit_str = str(unit)
+        if unit_str == 'lines':
+            height = f"{count}em"
+        elif unit_str == 'inches':
+            height = f"{count}in"
+        elif unit_str == 'cm':
+            height = f"{count}cm"
+        else:
+            height = f"{count}em"
+
+        return f'<div class="blankspace" style="height: {height};"></div>'
+    except Exception:
+        return '<div class="blankspace" style="height: 1em;"></div>'
+
+
+def _extract_param_text(parameter):
+    """Extract text from a command parameter."""
+    if isinstance(parameter, str):
+        return parameter
+    if isinstance(parameter, list):
+        if not parameter:
+            return ''
+        first = parameter[0]
+        if isinstance(first, str):
+            return first
+        if isinstance(first, list) and first:
+            return str(first[0])
+        return str(first)
+    return str(parameter)
+
+
+def _render_reference(ref, ctx):
+    """Render a reference to HTML."""
+    topic = ref.topic
+    if isinstance(topic, SageFunctionSpec):
+        topic = topic.name
+    topic_str = str(topic) if topic else ''
+
+    appearance = ref.appearance
+    booleans = ref.booleans if ref.booleans else []
+
+    # Determine how to render based on appearance
+    if appearance == 'invisible':
+        return ''
+
+    if appearance == 'topic':
+        href = _resolve_href(ref, ctx)
+        return f'<span class="ref-topic">&ldquo;<a href="{href}">{xml_escape(topic_str)}</a>&rdquo;</span>'
+
+    if appearance == 'see':
+        href = _resolve_href(ref, ctx)
+        type_str = str(ref.type) if ref.type else ''
+        cap_s = 'S' if 'initial-cap' in str(booleans) else 's'
+        period = '.' if 'final-period' in str(booleans) else ''
+        return f'<span class="ref-see">{cap_s}ee the {xml_escape(type_str)} <a href="{href}">{xml_escape(topic_str)}</a>{period}</span>'
+
+    # Default: check callee type from record
+    if appearance in (None, 'lisp:nil', 'common-lisp:nil', []):
+        callee_type = _get_callee_type(ref, ctx)
+
+        if callee_type in ('expand', 'Expand'):
+            # Inline expand - for now, just link
+            href = _resolve_href(ref, ctx)
+            return f'<div class="ref-expand"><a href="{href}">[{xml_escape(topic_str)}]</a></div>'
+
+        if callee_type == 'topic':
+            href = _resolve_href(ref, ctx)
+            return f'<span class="ref-topic">&ldquo;<a href="{href}">{xml_escape(topic_str)}</a>&rdquo;</span>'
+
+        if callee_type in ('crossreference', 'CrossRef', 'crossref'):
+            href = _resolve_href(ref, ctx)
+            return f'<span class="ref-crossref"><a href="{href}">{xml_escape(topic_str)}</a></span>'
+
+        if callee_type in ('precis', 'contents', 'operation'):
+            href = _resolve_href(ref, ctx)
+            return f'<span class="ref-topic">&ldquo;<a href="{href}">{xml_escape(topic_str)}</a>&rdquo;</span>'
+
+        # Fallback: just link
+        href = _resolve_href(ref, ctx)
+        return f'<a href="{href}">{xml_escape(topic_str)}</a>'
+
+    # Catch-all
+    href = _resolve_href(ref, ctx)
+    return f'<a href="{href}">{xml_escape(topic_str)}</a>'
+
+
+def _get_callee_type(ref, ctx):
+    """Get the callee type for a reference from the current record."""
+    if ctx.record and hasattr(ctx.record, 'callees') and ctx.record.callees:
+        uid = ref.unique_id
+        if uid in ctx.record.callees:
+            return ctx.record.callees[uid][1]  # called_how
+    return None
+
+
+def _resolve_href(ref, ctx):
+    """Resolve a reference to an href URL."""
+    if ctx.registry:
+        topic = ref.topic
+        if isinstance(topic, SageFunctionSpec):
+            topic = topic.name
+        resolved = ctx.registry.resolve_reference(ref.unique_id, topic)
+        if resolved:
+            relpath, _, _ = resolved
+            html_path = ctx.registry.get_html_path(relpath)
+            if ctx.current_file:
+                # Make relative to current file
+                current_dir = os.path.dirname(ctx.current_file)
+                html_path = os.path.relpath(html_path, current_dir)
+            return html_path
+    return '#'
+
+
+def _render_picture(pic):
+    """Render a picture to HTML."""
+    if not pic.contents:
+        return f'<div class="picture"><p>Picture: {xml_escape(pic.name)}</p></div>'
+
+    try:
+        data = pic.contents if isinstance(pic.contents, bytes) else pic.contents.encode('latin-1')
+        ops = binary_decode_graphics(data)
+        svg = render_picture_to_svg(ops)
+        return f'<div class="picture">\n{svg}\n</div>'
+    except Exception as e:
+        return f'<div class="picture"><p>Picture: {xml_escape(pic.name)} (error: {xml_escape(str(e))})</p></div>'
+
+
+# ========== Paragraph/tab fixup (ports fix-up-special-markup) ==========
+
+def _split_out_paragraph_markers(lst):
+    """Split text items on paragraph markers, inserting _PARAGRAPH_MARKER sentinels."""
+    result = []
+    for item in lst:
+        if isinstance(item, str) and PARAGRAPH_MARKER in item:
+            parts = item.split(PARAGRAPH_MARKER)
+            for i, part in enumerate(parts):
+                if i > 0:
+                    result.append(_PARAGRAPH_MARKER)
+                if part:
+                    result.append(part)
+        else:
+            result.append(item)
+    return result
+
+
+def _fix_up_tabs(lst):
+    """Group content between tab-to-tab-stop commands into tab environments."""
+    result = []
+    this_tab = None
+
+    for el in lst:
+        if isinstance(el, SageCommand) and str(el.name) == 'tab-to-tab-stop':
+            if this_tab is None:
+                this_tab = []
+        elif el is _PARAGRAPH_MARKER:
+            if this_tab is not None:
+                result.append(SageEnvr(name='nex-tab-to-tab-stop', mods=[], contents_list=list(this_tab)))
+            result.append(el)
+            this_tab = None
+        else:
+            if this_tab is not None:
+                this_tab.append(el)
+            else:
+                result.append(el)
+
+    if this_tab is not None:
+        result.append(SageEnvr(name='nex-tab-to-tab-stop', mods=[], contents_list=list(this_tab)))
+
+    return result
+
+
+def _fix_up_paragraphs(lst):
+    """Group content between paragraph markers into paragraph environments."""
+    if _PARAGRAPH_MARKER not in lst:
+        return lst
+
+    result = []
+    this_p = None
+
+    for el in lst:
+        if el is _PARAGRAPH_MARKER:
+            if this_p is not None:
+                filtered = [x for x in this_p if not (isinstance(x, str) and not x)]
+                if filtered:
+                    result.append(SageEnvr(name='nex-paragraph', mods=[], contents_list=filtered))
+            this_p = None
+        else:
+            if this_p is None:
+                this_p = []
+            this_p.append(el)
+
+    if this_p is not None:
+        filtered = [x for x in this_p if not (isinstance(x, str) and not x)]
+        if filtered:
+            result.append(SageEnvr(name='nex-paragraph', mods=[], contents_list=filtered))
+
+    return result
+
+
+def _fix_up_special_markup(lst):
+    """Apply paragraph and tab fixup to a content list."""
+    return _fix_up_paragraphs(_fix_up_tabs(_split_out_paragraph_markers(lst)))
+
+
+import os
