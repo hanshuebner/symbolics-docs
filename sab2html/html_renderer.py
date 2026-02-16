@@ -23,8 +23,20 @@ from .svg_renderer import render_picture_to_svg
 _PARAGRAPH_MARKER = object()
 _TAB_MARKER = object()
 
+_SLUG_RE = re.compile(r'[^a-z0-9]+')
 
-def render_record_to_html(record, registry=None, current_file=None):
+def _slugify(name):
+    """Convert a record/topic name to a URL-safe anchor ID."""
+    s = str(name).lower()
+    s = _SLUG_RE.sub('-', s).strip('-')
+    return s or 'section'
+
+
+_STRUCTURAL_TYPES = frozenset({
+    'section', 'subsection', 'subsubsection', 'chapter',
+})
+
+def render_record_to_html(record, registry=None, current_file=None, heading_tag='h2'):
     """Render a SageRecord to an HTML section string."""
     title_html = _format_record_title(record)
     contents = _get_field(record, 'contents')
@@ -34,9 +46,18 @@ def render_record_to_html(record, registry=None, current_file=None):
     ctx = RenderContext(registry=registry, current_file=current_file, record=record)
     body_parts = _render_content_list(contents, ctx)
 
+    name = record.name
+    if isinstance(name, SageFunctionSpec):
+        name = name.name
+    anchor = _slugify(name)
+
+    rec_type = str(record.type).lower() if record.type else ''
+    is_entry = rec_type not in _STRUCTURAL_TYPES
+    cls = f' class="entry"' if is_entry else ''
+
     return (
-        f'<section>\n'
-        f'<h1>{title_html}</h1>\n'
+        f'<section id="{anchor}"{cls}>\n'
+        f'<{heading_tag}>{title_html}</{heading_tag}>\n'
         f'{body_parts}\n'
         f'</section>\n'
     )
@@ -52,7 +73,8 @@ def render_records_to_html(records, index=None, registry=None, current_file=None
         # Associate index callees with record
         if index and i < len(index):
             _setup_record_callees(record, index[i])
-        parts.append(render_record_to_html(record, registry, current_file))
+        tag = 'h1' if i == 0 else 'h2'
+        parts.append(render_record_to_html(record, registry, current_file, heading_tag=tag))
 
     body = '\n'.join(parts)
     page_title = title or "SAB Document"
@@ -142,21 +164,26 @@ def _render_sage(sage, ctx):
     if isinstance(sage, SageReference):
         return _render_reference(sage, ctx)
     if isinstance(sage, SagePicture):
-        return _render_picture(sage)
+        return _render_picture(sage, ctx)
     if isinstance(sage, SageExampleRecordMarker):
         return '<div class="example-record-marker"></div>'
     if sage is _PARAGRAPH_MARKER:
-        return '<br>'
+        return '</p>\n<p>'
     if isinstance(sage, list):
         return ''.join(_render_sage(item, ctx) for item in sage)
     return xml_escape(str(sage))
 
 
 def _render_text(text):
-    """Render text, converting markers to HTML."""
+    """Render text, converting markers to HTML.
+
+    LINE_BREAK_MARKER becomes a plain newline: in <pre> blocks this
+    preserves the line break; in flowing text the browser collapses it
+    to a space, which is the correct behaviour for filled paragraphs.
+    """
     result = xml_escape(text)
     result = result.replace(PARAGRAPH_MARKER, '</p>\n<p>')
-    result = result.replace(LINE_BREAK_MARKER, '<br>\n')
+    result = result.replace(LINE_BREAK_MARKER, '\n')
     return result
 
 
@@ -177,7 +204,7 @@ def _render_envr(envr, ctx):
     if name in ('k', 'm', 'ls', 't'):
         return f'<code class="{name}">{content}</code>'
     if name == 'c':
-        return f'<span class="smallcaps">{content}</span>'
+        return f'<span class="pathname">{content}</span>'
     if name in ('u', 'un', 'ux'):
         return f'<span class="underline">{content}</span>'
 
@@ -209,11 +236,11 @@ def _render_envr(envr, ctx):
 
     # Heading environments
     if name == 'header':
-        return f'<h2 class="header">{content}</h2>'
+        return f'<h3 class="header">{content}</h3>'
     if name == 'heading':
-        return f'<h3 class="heading">{content}</h3>'
+        return f'<h4 class="heading">{content}</h4>'
     if name == 'majorheading':
-        return f'<h2 class="majorheading">{content}</h2>'
+        return f'<h3 class="majorheading">{content}</h3>'
 
     # Lisp sub/superscript
     if name in ('common-lisp:-', 'lisp:-'):
@@ -293,7 +320,7 @@ def _render_command(cmd, ctx):
 
     if name == 'subsection':
         param_text = _extract_param_text(cmd.parameter)
-        return f'<h3>{param_text}</h3>'
+        return f'<h4>{param_text}</h4>'
 
     if name == 'blankspace':
         return _render_blankspace(cmd.parameter)
@@ -399,7 +426,11 @@ def _extract_param_text(parameter):
 
 
 def _render_reference(ref, ctx):
-    """Render a reference to HTML."""
+    """Render a reference to HTML.
+
+    Each reference output ends with a newline so that consecutive
+    references get whitespace between them in flowing HTML.
+    """
     topic = ref.topic
     if isinstance(topic, SageFunctionSpec):
         topic = topic.name
@@ -414,43 +445,43 @@ def _render_reference(ref, ctx):
 
     if appearance == 'topic':
         href = _resolve_href(ref, ctx)
-        return f'<span class="ref-topic">&ldquo;<a href="{href}">{xml_escape(topic_str)}</a>&rdquo;</span>'
+        return f'<span class="ref-topic">\u201c<a href="{href}">{xml_escape(topic_str)}</a>\u201d</span>\n'
 
     if appearance == 'see':
         href = _resolve_href(ref, ctx)
         type_str = str(ref.type) if ref.type else ''
         cap_s = 'S' if 'initial-cap' in str(booleans) else 's'
         period = '.' if 'final-period' in str(booleans) else ''
-        return f'<span class="ref-see">{cap_s}ee the {xml_escape(type_str)} <a href="{href}">{xml_escape(topic_str)}</a>{period}</span>'
+        return f'<span class="ref-see">{cap_s}ee the {xml_escape(type_str)} <a href="{href}">{xml_escape(topic_str)}</a>{period}</span>\n'
 
     # Default: check callee type from record
-    if appearance in (None, 'lisp:nil', 'common-lisp:nil', []):
+    app_lower = str(appearance).lower() if appearance else ''
+    if appearance in (None, []) or app_lower in ('lisp:nil', 'common-lisp:nil'):
         callee_type = _get_callee_type(ref, ctx)
 
         if callee_type in ('expand', 'Expand'):
-            # Inline expand - for now, just link
             href = _resolve_href(ref, ctx)
-            return f'<div class="ref-expand"><a href="{href}">[{xml_escape(topic_str)}]</a></div>'
+            return f'<div class="ref-expand"><a href="{href}">{xml_escape(topic_str)}</a></div>\n'
 
         if callee_type == 'topic':
             href = _resolve_href(ref, ctx)
-            return f'<span class="ref-topic">&ldquo;<a href="{href}">{xml_escape(topic_str)}</a>&rdquo;</span>'
+            return f'<span class="ref-topic">\u201c<a href="{href}">{xml_escape(topic_str)}</a>\u201d</span>\n'
 
         if callee_type in ('crossreference', 'CrossRef', 'crossref'):
             href = _resolve_href(ref, ctx)
-            return f'<span class="ref-crossref"><a href="{href}">{xml_escape(topic_str)}</a></span>'
+            return f'<span class="ref-crossref"><a href="{href}">{xml_escape(topic_str)}</a></span>\n'
 
         if callee_type in ('precis', 'contents', 'operation'):
             href = _resolve_href(ref, ctx)
-            return f'<span class="ref-topic">&ldquo;<a href="{href}">{xml_escape(topic_str)}</a>&rdquo;</span>'
+            return f'<span class="ref-topic">\u201c<a href="{href}">{xml_escape(topic_str)}</a>\u201d</span>\n'
 
         # Fallback: just link
         href = _resolve_href(ref, ctx)
-        return f'<a href="{href}">{xml_escape(topic_str)}</a>'
+        return f'<a href="{href}">{xml_escape(topic_str)}</a>\n'
 
     # Catch-all
     href = _resolve_href(ref, ctx)
-    return f'<a href="{href}">{xml_escape(topic_str)}</a>'
+    return f'<a href="{href}">{xml_escape(topic_str)}</a>\n'
 
 
 def _get_callee_type(ref, ctx):
@@ -463,24 +494,27 @@ def _get_callee_type(ref, ctx):
 
 
 def _resolve_href(ref, ctx):
-    """Resolve a reference to an href URL."""
+    """Resolve a reference to an href URL with fragment anchor."""
     if ctx.registry:
         topic = ref.topic
         if isinstance(topic, SageFunctionSpec):
             topic = topic.name
         resolved = ctx.registry.resolve_reference(ref.unique_id, topic)
         if resolved:
-            relpath, _, _ = resolved
+            relpath, target_topic, _ = resolved
             html_path = ctx.registry.get_html_path(relpath)
+            anchor = _slugify(target_topic)
+            # Same file? Just use fragment
+            if ctx.current_file and html_path == ctx.current_file:
+                return f'#{anchor}'
             if ctx.current_file:
-                # Make relative to current file
                 current_dir = os.path.dirname(ctx.current_file)
                 html_path = os.path.relpath(html_path, current_dir)
-            return html_path
+            return f'{html_path}#{anchor}'
     return '#'
 
 
-def _render_picture(pic):
+def _render_picture(pic, ctx=None):
     """Render a picture to HTML."""
     if not pic.contents:
         return f'<div class="picture"><p>Picture: {xml_escape(pic.name)}</p></div>'
@@ -488,10 +522,34 @@ def _render_picture(pic):
     try:
         data = pic.contents if isinstance(pic.contents, bytes) else pic.contents.encode('latin-1')
         ops = binary_decode_graphics(data)
-        svg = render_picture_to_svg(ops)
+        link_resolver = None
+        if ctx and ctx.registry:
+            link_resolver = _make_svg_link_resolver(ctx)
+        svg = render_picture_to_svg(ops, link_resolver=link_resolver)
         return f'<div class="picture">\n{svg}\n</div>'
     except Exception as e:
         return f'<div class="picture"><p>Picture: {xml_escape(pic.name)} (error: {xml_escape(str(e))})</p></div>'
+
+
+def _make_svg_link_resolver(ctx):
+    """Return a function that resolves a text string to an href, or None."""
+    def resolver(text):
+        # Try exact match, then upper-case match against registry by_name
+        registry = ctx.registry
+        for candidate in (text, text.upper(), text.lower()):
+            if candidate in registry.by_name:
+                info = registry.by_name[candidate]
+                relpath, uid, type_sym = info
+                html_path = registry.get_html_path(relpath)
+                anchor = _slugify(candidate)
+                if ctx.current_file and html_path == ctx.current_file:
+                    return f'#{anchor}'
+                if ctx.current_file:
+                    current_dir = os.path.dirname(ctx.current_file)
+                    html_path = os.path.relpath(html_path, current_dir)
+                return f'{html_path}#{anchor}'
+        return None
+    return resolver
 
 
 # ========== Paragraph/tab fixup (ports fix-up-special-markup) ==========

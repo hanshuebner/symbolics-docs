@@ -124,10 +124,11 @@ def _transform_attr(transform):
     )
 
 
-def _render_ops(ops, transform=None):
+def _render_ops(ops, transform=None, link_resolver=None):
     """Render a list of graphics operations to SVG elements.
 
     Returns (svg_elements_string, bounding_box).
+    link_resolver: optional callable(text) -> href_string_or_None
     """
     if transform is None:
         transform = OpGraphicsTransform(r11=1, r12=0, r21=0, r22=1, tx=0, ty=0)
@@ -147,7 +148,7 @@ def _render_ops(ops, transform=None):
             continue
 
         if isinstance(op, OpScanConversionMode):
-            sub_svg, sub_bb = _render_ops(op.output_forms, transform)
+            sub_svg, sub_bb = _render_ops(op.output_forms, transform, link_resolver)
             elements.append(sub_svg)
             bb.extend_box(sub_bb)
             continue
@@ -238,23 +239,23 @@ def _render_ops(ops, transform=None):
                 f'stroke-width="{thickness}" transform="{t_attr}"/>'
             )
 
-        elif isinstance(op, OpString):
+        elif isinstance(op, (OpString, OpStringImage)):
             x = tx(op.x)
             y = ty(-op.y)
             bb.extend_point(x, y)
             bb.extend_point(x + len(op.string) * 10, y - 16)
-            elements.append(
-                f'<text x="{_fmt(x)}" y="{_fmt(y)}">{xml_escape(op.string)}</text>'
-            )
-
-        elif isinstance(op, OpStringImage):
-            x = tx(op.x)
-            y = ty(-op.y)
-            bb.extend_point(x, y)
-            bb.extend_point(x + len(op.string) * 10, y - 16)
-            elements.append(
-                f'<text x="{_fmt(x)}" y="{_fmt(y)}">{xml_escape(op.string)}</text>'
-            )
+            escaped = xml_escape(op.string)
+            href = link_resolver(op.string) if link_resolver else None
+            if href:
+                elements.append(
+                    f'<a href="{href}">'
+                    f'<text x="{_fmt(x)}" y="{_fmt(y)}" fill="#1a5fa0">{escaped}</text>'
+                    f'</a>'
+                )
+            else:
+                elements.append(
+                    f'<text x="{_fmt(x)}" y="{_fmt(y)}">{escaped}</text>'
+                )
 
         elif isinstance(op, OpPath):
             filled = _plist_get(op.options, ':filled', True)
@@ -317,10 +318,10 @@ def _render_ops(ops, transform=None):
     return "\n".join(elements), bb
 
 
-def render_picture_to_svg(ops) -> str:
+def render_picture_to_svg(ops, link_resolver=None) -> str:
     """Render a list of decoded graphics operations to a complete SVG string."""
     transform = OpGraphicsTransform(r11=1, r12=0, r21=0, r22=1, tx=0, ty=0)
-    content, bb = _render_ops(ops, transform)
+    content, bb = _render_ops(ops, transform, link_resolver)
     x = _fmt(bb.x1)
     y = _fmt(bb.y1)
     w = _fmt(bb.x2 - bb.x1)

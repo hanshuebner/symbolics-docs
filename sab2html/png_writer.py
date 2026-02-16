@@ -22,7 +22,7 @@ _FLIP_TABLE = bytes(_flip_byte(i) for i in range(256))
 
 def raster_to_png_bytes(raster_image) -> bytes:
     """Convert an OpRasterImage to PNG bytes using Pillow."""
-    from PIL import Image
+    from PIL import Image, ImageOps
 
     width = raster_image.width
     height = raster_image.height
@@ -33,6 +33,10 @@ def raster_to_png_bytes(raster_image) -> bytes:
 
     # Create a 1-bit image from the PBM data
     img = Image.frombytes('1', (width, height), flipped, 'raw', '1', 0, 1)
+
+    # Genera uses 1=ink(black), 0=paper(white), opposite of PIL mode '1'.
+    # Invert so background is white and foreground is black.
+    img = ImageOps.invert(img.convert('L'))
 
     buf = io.BytesIO()
     img.save(buf, format='PNG')

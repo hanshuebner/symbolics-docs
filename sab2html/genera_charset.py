@@ -45,31 +45,62 @@ GENERA_CHAR_MAP = {
     0x1f: '\u2228',  # logical or
 }
 
+# Characters in the C1 control range (0x7F-0x9F) that appear in Genera
+# SAB files.  Most are formatting artifacts; strip them rather than
+# producing U+FFFD replacement characters.
+# 0x89 is a tab/indentation marker in Genera text — handled separately.
+_C1_TAB = 0x89
+_C1_STRIP = (set(range(0x7f, 0x8d)) | set(range(0x8e, 0xa0))) - {_C1_TAB}
+
+_TAB_WIDTH = 8
+
+
+def _recode_and_expand(text: str) -> str:
+    """Recode Genera characters, expand 0x89 tabs to spaces.
+
+    Handles paragraph markers (0x8D 0x8D), line breaks (0x8D),
+    the 32 special character codes (0x00-0x1F), C1 control
+    stripping, and column-aware tab expansion for 0x89.
+    """
+    # First handle paragraph markers and line breaks
+    result = text.replace('\x8d\x8d', PARAGRAPH_MARKER)
+    result = result.replace('\x8d', LINE_BREAK_MARKER)
+
+    out = []
+    col = 0
+    for ch in result:
+        code = ord(ch)
+        if code == _C1_TAB:
+            # Expand to spaces up to the next tab stop
+            spaces = _TAB_WIDTH - (col % _TAB_WIDTH)
+            out.append(' ' * spaces)
+            col += spaces
+        elif code in GENERA_CHAR_MAP:
+            out.append(GENERA_CHAR_MAP[code])
+            col += 1
+        elif code in _C1_STRIP:
+            pass  # silently drop unmapped C1 control characters
+        elif ch == LINE_BREAK_MARKER or ch == '\n':
+            out.append(ch)
+            col = 0
+        elif ch == PARAGRAPH_MARKER:
+            out.append(ch)
+            col = 0
+        else:
+            out.append(ch)
+            col += 1
+    return ''.join(out)
+
 
 def recode_genera_characters(text: str) -> str:
     """Recode Genera-specific characters in a string to Unicode.
 
     Handles paragraph markers (0x8D 0x8D), line breaks (0x8D),
-    and the 32 special character codes.
+    the 32 special character codes, and tab expansion.
     """
-    # First handle paragraph markers (two consecutive 0x8D bytes)
-    # then single line breaks (single 0x8D byte)
-    result = text.replace('\x8d\x8d', PARAGRAPH_MARKER)
-    result = result.replace('\x8d', LINE_BREAK_MARKER)
-
-    # Replace special characters
-    out = []
-    for ch in result:
-        code = ord(ch)
-        if code in GENERA_CHAR_MAP:
-            out.append(GENERA_CHAR_MAP[code])
-        else:
-            out.append(ch)
-    return ''.join(out)
+    return _recode_and_expand(text)
 
 
 def recode_genera_long_string(text: str) -> str:
-    """Recode a long string - same paragraph/line break handling."""
-    result = text.replace('\x8d\x8d', PARAGRAPH_MARKER)
-    result = result.replace('\x8d', LINE_BREAK_MARKER)
-    return result
+    """Recode a long string - same handling as recode_genera_characters."""
+    return _recode_and_expand(text)
