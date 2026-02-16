@@ -10,10 +10,10 @@ A Makefile drives the full pipeline. All commands use project venvs.
 # Full rebuild: HTML + XML + semantic search embeddings
 make all
 
-# Just regenerate the HTML/XML site (~15s)
+# Just regenerate the HTML/XML site (~15s on i5-8350U)
 make site
 
-# Just rebuild embeddings (~15-25 min on CPU)
+# Just rebuild embeddings (~15-25 min on M3 MacBook)
 make embeddings
 
 # Serve with search API at http://localhost:8000
@@ -86,4 +86,4 @@ Uses a separate venv with PyTorch + sentence-transformers (~2.3GB disk, CPU-only
 
 ## SAB Source Location
 
-The Genera 9.0 SAB files are at `/opt/symbolics/lib/rel-9-0/sys.sct`. The build produces 851 HTML files in ~13 seconds.
+The Genera 9.0 SAB files are at `/opt/symbolics/lib/rel-9-0/sys.sct`. The build produces 851 HTML files in ~15 seconds on an i5-8350U.

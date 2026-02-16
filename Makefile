@@ -28,7 +28,7 @@ venv-search/.done:
 site: venv/.done
 	./venv/bin/python3 convert.py site $(SAB_DIR) -o $(OUTPUT_DIR) --xml
 
-# Build semantic search embeddings from XML (~15-25 min on CPU)
+# Build semantic search embeddings from XML (~15-25 min on M3 MacBook)
 embeddings: venv-search/.done site
 	./venv-search/bin/python3 build_embeddings.py $(OUTPUT_DIR)
 

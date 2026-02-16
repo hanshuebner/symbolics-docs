@@ -10,7 +10,7 @@ make all            # generate HTML/XML site + semantic search embeddings
 make serve          # serve at http://localhost:8000 with search API
 ```
 
-`make all` is the single command that does everything: it converts all SAB files to HTML and XML, then builds the semantic search index. This takes about 20 minutes total (15–25 min is the embedding step; the HTML conversion itself is ~15 seconds).
+`make all` is the single command that does everything: it converts all SAB files to HTML and XML, then builds the semantic search index. The HTML conversion takes ~15 seconds on an i5-8350U; the embedding step takes 15–25 minutes on an M3 MacBook.
 
 ## Prerequisites
 
@@ -38,7 +38,7 @@ make site
 # 3. Setup search venv (downloads CPU-only PyTorch, ~2.3 GB)
 make setup-search
 
-# 4. Build semantic embeddings from XML (~15-25 min on CPU)
+# 4. Build semantic embeddings from XML (~15-25 min on M3 MacBook)
 make embeddings
 
 # 5. Serve with full search (semantic + keyword + hybrid)
