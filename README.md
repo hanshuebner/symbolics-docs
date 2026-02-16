@@ -1,89 +1,89 @@
-# sab2html - Symbolics Genera SAB to XML/HTML Converter
+# sab2html — Symbolics Genera Documentation
 
-Converts Symbolics Genera SAB (Sage Abstract Browser) binary documentation files to semantic XML and browsable HTML. These are the hypertext documentation files from the Genera Document Examiner / Concordia system.
+Converts the 851 SAB (Sage Abstract Browser) binary documentation files from Symbolics Genera into a browsable HTML site with cross-references, inline SVG graphics, and full-text search.
 
-## Architecture
-
-```
-SAB binary files
-      |
-      v
-  [sab2html parser]        -- binary parsing (46 type codes, graphics sub-format)
-      |
-      v
-  Semantic XML (.xml)       -- lossless intermediate representation
-      |
-      v
-  [HTML renderer]           -- output generation
-      |
-      +---> HTML static site (with client-side search)
-      +---> XML files (for further processing)
-```
-
-## Usage
+## Quick Start
 
 ```bash
-# Setup
-python3 -m venv venv
-./venv/bin/pip install lxml Pillow
+make setup          # create venv, install lxml + Pillow
+make all            # generate HTML/XML site + semantic search embeddings
+make serve          # serve at http://localhost:8000 with search API
+```
 
-# Generate complete site from all SAB files
-./venv/bin/python3 convert.py site /path/to/sys.sct -o output --xml
+`make all` is the single command that does everything: it converts all SAB files to HTML and XML, then builds the semantic search index. This takes about 20 minutes total (15–25 min is the embedding step; the HTML conversion itself is ~15 seconds).
 
-# Convert a single file
+## Prerequisites
+
+- Python 3.11+
+- SAB files from a Genera 9.0 installation (default: `/opt/symbolics/lib/rel-9-0/sys.sct`)
+- ~2.3 GB disk for the search venv (CPU-only PyTorch + sentence-transformers)
+
+If your SAB files are elsewhere:
+
+```bash
+make all SAB_DIR=/path/to/sys.sct
+```
+
+## Step by Step
+
+If you prefer running the steps individually:
+
+```bash
+# 1. Setup converter venv
+make setup
+
+# 2. Generate the HTML site (also emits XML, needed for embeddings)
+make site
+
+# 3. Setup search venv (downloads CPU-only PyTorch, ~2.3 GB)
+make setup-search
+
+# 4. Build semantic embeddings from XML (~15-25 min on CPU)
+make embeddings
+
+# 5. Serve with full search (semantic + keyword + hybrid)
+make serve
+```
+
+## Serving
+
+**With search server** (semantic + keyword search, requires embeddings):
+
+```bash
+make serve                  # default port 8000
+make serve PORT=9000        # custom port
+```
+
+**Static files only** (client-side keyword search, no embeddings needed):
+
+```bash
+make serve-static
+```
+
+The site includes a fixed header bar on every page with the Symbolics logo, site title, and a search input. Typing in the header search bar shows a dropdown of results; pressing Enter goes to the full search page. When the search server is running, queries use semantic search powered by `BAAI/bge-large-en-v1.5` embeddings. Without the server, search falls back to client-side keyword matching.
+
+## Working with Individual Files
+
+```bash
+# Convert a single SAB file to HTML
 ./venv/bin/python3 convert.py single FILE.sab --format html
+
+# Convert to XML
 ./venv/bin/python3 convert.py single FILE.sab --format xml
 
-# Inspect a file
+# Inspect a SAB file's internal structure
 ./venv/bin/python3 convert.py info FILE.sab
-
-# Serve the generated site
-cd output && python3 -m http.server
 ```
-
-## Project Structure
-
-```
-sab2html/
-    stream.py             # Binary stream reader (SabStream class)
-    sab_types.py          # 46 SAB type code constants + dataclasses
-    sab_reader.py         # SAB parser: dispatch table, all 46 readers
-    binary_graphics.py    # Binary graphics sub-format (15 commands, 16 operations)
-    genera_charset.py     # Genera character encoding -> Unicode mapping
-    sexpr_parser.py       # Minimal S-expression parser (for read-from-string)
-    xml_emitter.py        # Parsed AST -> semantic XML output
-    cross_references.py   # Global record registry, two-pass processing
-    html_renderer.py      # SAB structures -> HTML (60+ environments, 30+ commands)
-    svg_renderer.py       # Graphics operations -> SVG strings
-    png_writer.py         # Raster images -> PNG (via Pillow, with bit-flip)
-    site_generator.py     # Batch processing, index, search index
-convert.py                # CLI entry point
-static/
-    style.css             # Site stylesheet
-    search.js             # Client-side search
-```
-
-## SAB Format
-
-SAB files are binary compiled documentation from the Symbolics Concordia system. Each file contains:
-
-- A header with magic number (0x00000000) and version (7)
-- File attributes (compilation user, machine, time, pathnames)
-- Records section: document content with nested environments, commands, references, and pictures
-- Index section: metadata for each record including unique IDs, tokens, and callee lists
-
-The parser handles 46 type codes, Genera-specific character encoding (Greek letters, math symbols, arrows), and a binary graphics sub-format with 16 drawing operations (lines, rectangles, ellipses, bezier curves, paths, raster images, etc.).
 
 ## Output
 
-For the Genera 9.0 distribution (851 SAB files, ~52MB):
+For the Genera 9.0 distribution (851 SAB files, ~52 MB):
 
-- 851 HTML files + index + search page
-- 851 XML files (with `--xml` flag)
+- 851 HTML pages with a fixed header, cross-references, inline SVG, and base64 PNG images
+- 851 XML intermediate files (with `--xml`)
 - 17,671 search index entries
-- Cross-references resolved across files (17,401 unique IDs, 12,188 numeric indices)
-- Inline SVG for vector graphics, base64 PNG for raster images
-- Full site generation in ~20 seconds
+- 17,401 cross-file references resolved across 12,188 numeric indices
+- Semantic search embeddings in `output/semantic-index/`
 
 ## Credits
 

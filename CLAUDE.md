@@ -4,26 +4,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build & Run Commands
 
-All commands use the project venv: `source venv/bin/activate` or prefix with `./venv/bin/python3`.
+A Makefile drives the full pipeline. All commands use project venvs.
 
 ```bash
-# Generate complete HTML site from SAB files (main workflow)
-python3 convert.py site /opt/symbolics/lib/rel-9-0/sys.sct -o output
+# Full rebuild: HTML + XML + semantic search embeddings
+make all
 
-# Also emit XML intermediate files
-python3 convert.py site /opt/symbolics/lib/rel-9-0/sys.sct -o output --xml
+# Just regenerate the HTML/XML site (~15s)
+make site
 
-# Convert a single SAB file
+# Just rebuild embeddings (~15-25 min on CPU)
+make embeddings
+
+# Serve with search API at http://localhost:8000
+make serve
+
+# Serve static files only (client-side keyword search)
+make serve-static
+```
+
+Individual file commands (prefix with `./venv/bin/python3` or activate venv):
+
+```bash
 python3 convert.py single FILE.sab --format html
 python3 convert.py single FILE.sab --format xml
-
-# Inspect a SAB file's structure
 python3 convert.py info FILE.sab
+```
 
-# Serve the generated site locally
-cd output && python3 -m http.server 8000
+Take headless screenshots for visual verification:
 
-# Take headless screenshots for visual verification
+```bash
 chromium --headless --no-sandbox --disable-gpu --screenshot=/tmp/page.png --window-size=1200,3000 "file:///home/hans/symbolics-docs/output/path/to/file.html"
 ```
 
@@ -63,28 +73,16 @@ SAB binary → sab_reader.py (46 type codes, dispatch table)
 - `_fix_up_special_markup()` transforms flat content lists into nested paragraph/tab-stop structures before rendering
 - `LINE_BREAK_MARKER` renders as `\n` (collapses to space in flowing HTML, preserves breaks in `<pre>`)
 - Record anchors use `_slugify()` for URL-safe IDs
-- CSS path placeholders (`{{CSS_PATH}}`, `{{INDEX_PATH}}`) are replaced based on output file depth
+- Path placeholders (`{{CSS_PATH}}`, `{{INDEX_PATH}}`, `{{LOGO_PATH}}`, `{{SEARCH_JS_PATH}}`) are replaced based on output file depth
 
 ## Semantic Search
 
-Uses a separate venv with PyTorch + sentence-transformers (~2.3GB disk, CPU-only):
-
-```bash
-# One-time setup
-python3 -m venv venv-search
-./venv-search/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
-./venv-search/bin/pip install sentence-transformers fastapi uvicorn[standard]
-
-# Build embedding index from XML (requires --xml output, ~15-25 min on CPU)
-./venv-search/bin/python3 build_embeddings.py output
-
-# Run search server (serves site + semantic/keyword/hybrid search API)
-./venv-search/bin/python3 search_server.py --output output --port 8000
-```
+Uses a separate venv with PyTorch + sentence-transformers (~2.3GB disk, CPU-only). Setup and build are handled by the Makefile (`make setup-search`, `make embeddings`).
 
 - **`build_embeddings.py`**: Extracts text from `output/**/*.xml`, chunks, embeds with `BAAI/bge-large-en-v1.5`, saves to `output/semantic-index/`
 - **`search_server.py`**: FastAPI app with `/api/search?q=...&mode=semantic|keyword|hybrid` and `/api/status`. Mounts `output/` as static files.
-- **`static/search-semantic.js`**: Client-side code that probes the API; falls back to keyword-only search.js if server is unavailable.
+- **`static/search-semantic.js`**: Client-side code on the search page that probes the API; falls back to keyword-only search.js if server is unavailable.
+- **`static/header-search.js`**: Global dropdown search in the fixed header bar. Probes the API, falls back to client-side keyword search from `search-index.json`.
 
 ## SAB Source Location
 
