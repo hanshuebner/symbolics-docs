@@ -76,11 +76,13 @@ def generate_site(sab_dir: str, output_dir: str, emit_xml_files=False):
                 file_attrs=attrs,
             )
 
-            # Fix up CSS/index paths based on output directory depth
+            # Fix up CSS/index/logo/search paths based on output directory depth
             depth = html_relpath.count('/')
             prefix = '../' * depth if depth > 0 else ''
             html = html.replace('{{CSS_PATH}}', prefix + 'style.css')
             html = html.replace('{{INDEX_PATH}}', prefix + 'index.html')
+            html = html.replace('{{LOGO_PATH}}', prefix + 'symbolics-logo.png')
+            html = html.replace('{{SEARCH_JS_PATH}}', prefix + 'header-search.js')
 
             # Write HTML
             out_path = os.path.join(output_dir, html_relpath)
@@ -342,11 +344,24 @@ def _generate_index_page(file_index, ok, fail, elapsed):
         f'  <link rel="stylesheet" href="style.css">\n'
         f'</head>\n'
         f'<body>\n'
-        f'<h1>Symbolics Genera Documentation</h1>\n'
+        f'<header class="site-header">\n'
+        f'  <div class="header-left">\n'
+        f'    <a href="index.html" class="header-logo">\n'
+        f'      <img src="symbolics-logo.png" alt="Symbolics">\n'
+        f'    </a>\n'
+        f'    <span class="header-title">Symbolics Portable Genera 9.0 Documentation</span>\n'
+        f'  </div>\n'
+        f'  <div class="header-search">\n'
+        f'    <input type="text" id="header-search-input" placeholder="Search documentation..." autocomplete="off">\n'
+        f'    <div id="header-search-results" class="search-dropdown"></div>\n'
+        f'  </div>\n'
+        f'</header>\n'
+        f'<main class="content">\n'
         f'<p>Converted from {ok + fail} SAB files from Genera 9.0 / Open Genera.</p>\n'
-        f'<p><a href="search.html">Search documentation</a></p>\n'
         f'<p class="stats">{ok} files converted, {fail} errors, {elapsed:.1f}s total</p>\n'
         f'{sections_html}\n'
+        f'</main>\n'
+        f'<script src="header-search.js"></script>\n'
         f'</body>\n'
         f'</html>\n'
     )
@@ -364,7 +379,19 @@ def _generate_search_page():
         '  <link rel="stylesheet" href="style.css">\n'
         '</head>\n'
         '<body>\n'
-        '<nav class="breadcrumb"><a href="index.html">Index</a></nav>\n'
+        '<header class="site-header">\n'
+        '  <div class="header-left">\n'
+        '    <a href="index.html" class="header-logo">\n'
+        '      <img src="symbolics-logo.png" alt="Symbolics">\n'
+        '    </a>\n'
+        '    <span class="header-title">Symbolics Portable Genera 9.0 Documentation</span>\n'
+        '  </div>\n'
+        '  <div class="header-search">\n'
+        '    <input type="text" id="header-search-input" placeholder="Search documentation..." autocomplete="off">\n'
+        '    <div id="header-search-results" class="search-dropdown"></div>\n'
+        '  </div>\n'
+        '</header>\n'
+        '<main class="content">\n'
         '<h1>Search Documentation</h1>\n'
         '<div class="search-box">\n'
         '  <input type="text" id="search-input" placeholder="Search..." autofocus>\n'
@@ -378,8 +405,10 @@ def _generate_search_page():
         '  </div>\n'
         '</div>\n'
         '<ul id="search-results" class="search-results"></ul>\n'
+        '</main>\n'
         '<script src="search.js"></script>\n'
         '<script src="search-semantic.js"></script>\n'
+        '<script src="header-search.js"></script>\n'
         '</body>\n'
         '</html>\n'
     )

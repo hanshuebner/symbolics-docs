@@ -91,6 +91,21 @@
         });
     }
 
+    // Check for ?q= parameter and auto-run search
+    function checkQueryParam() {
+        var params = new URLSearchParams(window.location.search);
+        var q = params.get('q');
+        if (q && input) {
+            input.value = q;
+            // Also fill in the header search input if present
+            var headerInput = document.getElementById('header-search-input');
+            if (headerInput) headerInput.value = q;
+            // Trigger search after a short delay to allow index/server probe to settle
+            setTimeout(doSearch, 100);
+        }
+    }
+    checkQueryParam();
+
     // Probe for API availability
     fetch('/api/status')
         .then(function (resp) {
