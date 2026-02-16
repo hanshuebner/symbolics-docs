@@ -126,6 +126,15 @@ section.entry .format {
 /* Search page */
 .search-box { margin: 1em 0; }
 .search-box input { width: 100%; padding: 0.5em; font-size: 1em; border: 1px solid var(--border); border-radius: 4px; }
+.search-controls { display: flex; align-items: center; gap: 0.8em; margin-top: 0.5em; }
+.search-controls select { padding: 0.3em 0.5em; font-size: 0.9em; border: 1px solid var(--border); border-radius: 3px; }
+.server-status { font-size: 0.8em; }
+.status-ok { color: #2a7d2a; }
+.status-off { color: #999; }
+.source-badge { font-size: 0.7em; padding: 0.1em 0.4em; border-radius: 3px; vertical-align: middle; margin-left: 0.3em; background: #e8e8e8; color: #555; }
+.source-semantic { background: #e3f0ff; color: #1a5fa0; }
+.source-keyword { background: #f0e8ff; color: #6b3fa0; }
+.source-both { background: #e3ffe8; color: #2a7d2a; }
 .search-results { list-style: none; padding: 0; }
 .search-results li { margin: 0.8em 0; padding: 0.5em; border-bottom: 1px solid #eee; }
 .search-results .title { font-weight: bold; }

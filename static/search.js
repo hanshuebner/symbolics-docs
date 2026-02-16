@@ -62,6 +62,10 @@ function escapeHtml(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Expose for use by search-semantic.js fallback
+window.loadIndex = loadIndex;
+window.search = search;
+
 document.addEventListener('DOMContentLoaded', () => {
     const input = document.getElementById('search-input');
     const resultsList = document.getElementById('search-results');
