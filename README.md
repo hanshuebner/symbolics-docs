@@ -62,6 +62,20 @@ make serve-static
 
 The site includes a fixed header bar on every page with the Symbolics logo, site title, and a search input. Typing in the header search bar shows a dropdown of results; pressing Enter goes to the full search page. When the search server is running, queries use semantic search powered by `BAAI/bge-large-en-v1.5` embeddings. Without the server, search falls back to client-side keyword matching.
 
+## Installing as a systemd Service
+
+To run the documentation server automatically at boot:
+
+```bash
+sudo cp symbolics-docs.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now symbolics-docs
+```
+
+Check status with `systemctl status symbolics-docs` and logs with `journalctl -u symbolics-docs`.
+
+To change the port, edit the `ExecStart` line in `/etc/systemd/system/symbolics-docs.service` and run `sudo systemctl daemon-reload && sudo systemctl restart symbolics-docs`.
+
 ## Working with Individual Files
 
 ```bash

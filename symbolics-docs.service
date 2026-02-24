@@ -1,0 +1,14 @@
+[Unit]
+Description=Symbolics Genera Documentation Server
+After=network.target
+
+[Service]
+Type=simple
+User=hans
+WorkingDirectory=/home/hans/symbolics-docs
+ExecStart=/home/hans/symbolics-docs/venv-search/bin/python3 search_server.py --output output --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
