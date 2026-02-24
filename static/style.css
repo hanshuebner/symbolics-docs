@@ -75,6 +75,27 @@ section.entry .format {
     margin-left: 0;
 }
 
+.entry-heading {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0 0.5em;
+}
+.entry-name {
+    text-transform: lowercase;
+}
+.entry-args {
+    font-weight: normal;
+    font-size: 0.85em;
+}
+.entry-type {
+    margin-left: auto;
+    font-style: italic;
+    font-weight: normal;
+    font-size: 0.75em;
+    white-space: nowrap;
+}
+
 .format {
     font-weight: 600;
     background: var(--code-bg);

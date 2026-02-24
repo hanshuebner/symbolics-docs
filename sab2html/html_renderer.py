@@ -55,9 +55,29 @@ def render_record_to_html(record, registry=None, current_file=None, heading_tag=
     is_entry = rec_type not in _STRUCTURAL_TYPES
     cls = f' class="entry"' if is_entry else ''
 
+    if is_entry:
+        # Structured heading: name + arglist + type label
+        arglist = _get_field(record, 'arglist') or _get_field(record, 'symbolics-common-lisp:arglist')
+        arglist_html = ''
+        if arglist:
+            arglist_html = _render_content_list(arglist, ctx).strip()
+
+        type_label = _format_type_label(record.type)
+
+        heading_parts = [f'<span class="entry-name">{title_html}</span>']
+        if arglist_html:
+            heading_parts.append(f'<span class="entry-args">{arglist_html}</span>')
+        if type_label:
+            heading_parts.append(f'<span class="entry-type">{type_label}</span>')
+
+        heading_inner = '\n  '.join(heading_parts)
+        heading = f'<{heading_tag} class="entry-heading">\n  {heading_inner}\n</{heading_tag}>'
+    else:
+        heading = f'<{heading_tag}>{title_html}</{heading_tag}>'
+
     return (
         f'<section id="{anchor}"{cls}>\n'
-        f'<{heading_tag}>{title_html}</{heading_tag}>\n'
+        f'{heading}\n'
         f'{body_parts}\n'
         f'</section>\n'
     )
@@ -153,6 +173,17 @@ def _format_record_title(record):
     if isinstance(name, SageFunctionSpec):
         return xml_escape(name.name)
     return xml_escape(str(name))
+
+
+def _format_type_label(record_type):
+    """Format record type for display: strip package prefix, title-case."""
+    if not record_type:
+        return ''
+    s = str(record_type)
+    # Strip package prefix like 'LISP:' or 'SYMBOLICS-COMMON-LISP:'
+    if ':' in s:
+        s = s.rsplit(':', 1)[1]
+    return s.strip().title()
 
 
 def _render_content_list(contents, ctx):
