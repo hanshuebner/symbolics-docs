@@ -68,7 +68,10 @@ pre p { margin: 0; padding: 0; }
 .picture svg { max-width: 100%; height: auto; }
 
 /* Entry-type records (commands, functions, variables, etc.) */
-section.entry > :not(h1):not(h2):not(h3) {
+/* Body text is flush with heading; examples/code are indented */
+section.entry .example,
+section.entry .display,
+section.entry .verbatim {
     margin-left: 1.5em;
 }
 section.entry .format {
