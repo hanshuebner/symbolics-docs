@@ -52,6 +52,7 @@ pre {
     line-height: 1.45;
 }
 pre code { background: none; padding: 0; }
+pre p { margin: 0; padding: 0; }
 
 .example { margin: 0.8em 0; }
 .example pre { margin: 0; }
