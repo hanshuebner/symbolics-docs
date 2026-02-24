@@ -141,6 +141,11 @@ section.entry .format {
 .ref-crossref { }
 .ref-expand { margin: 0.15em 0; padding: 0.25em 0.8em; }
 
+/* Offset fragment-link scroll targets so they aren't hidden behind the fixed header */
+[id] {
+    scroll-margin-top: 60px;
+}
+
 /* Fixed site header */
 .site-header {
     position: fixed;
