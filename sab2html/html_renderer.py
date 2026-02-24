@@ -186,6 +186,34 @@ def _format_type_label(record_type):
     return s.strip().title()
 
 
+def _strip_package_prefix(name):
+    """Strip Lisp package prefix for display: 'LISP:first' -> 'first'."""
+    if ':' in name and not name.startswith(':'):
+        return name.split(':', 1)[1]
+    return name
+
+
+def _resolve_l_command(param_text, ctx):
+    """Resolve a Lisp symbol name to an href, or None."""
+    if not ctx or not ctx.registry:
+        return None
+    stripped = _strip_package_prefix(param_text)
+    registry = ctx.registry
+    for candidate in (stripped, stripped.upper(), stripped.lower()):
+        if candidate in registry.by_name:
+            info = registry.by_name[candidate]
+            relpath, uid, type_sym = info
+            html_path = registry.get_html_path(relpath)
+            anchor = _slugify(candidate)
+            if ctx.current_file and html_path == ctx.current_file:
+                return f'#{anchor}'
+            if ctx.current_file:
+                current_dir = os.path.dirname(ctx.current_file)
+                html_path = os.path.relpath(html_path, current_dir)
+            return f'{html_path}#{anchor}'
+    return None
+
+
 def _render_content_list(contents, ctx):
     """Render a list of content items to HTML string."""
     if not contents:
@@ -387,7 +415,11 @@ def _render_command(cmd, ctx):
 
     if name == 'l':
         param_text = _extract_param_text(cmd.parameter)
-        return f'<code>{xml_escape(param_text)}</code>'
+        display_text = _strip_package_prefix(param_text)
+        href = _resolve_l_command(param_text, ctx)
+        if href:
+            return f'<b><a href="{href}">{xml_escape(display_text)}</a></b>'
+        return f'<b>{xml_escape(display_text)}</b>'
 
     if name == 'value':
         param_text = _extract_param_text(cmd.parameter)
