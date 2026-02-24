@@ -11,6 +11,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 
 import numpy as np
@@ -22,6 +23,14 @@ from sentence_transformers import SentenceTransformer
 
 
 app = FastAPI(title="Genera Documentation Search")
+
+_SLUG_RE = re.compile(r'[^a-z0-9]+')
+
+def _slugify(name):
+    """Convert a record name to a URL-safe anchor ID."""
+    s = str(name).lower()
+    s = _SLUG_RE.sub('-', s).strip('-')
+    return s or 'section'
 
 # Global state loaded at startup
 model = None
@@ -85,10 +94,14 @@ def semantic_search(query, limit=30):
         if key in seen:
             continue
         seen.add(key)
+        path = chunk['html_path']
+        slug = _slugify(chunk['name'])
+        if slug:
+            path = path + '#' + slug
         results.append({
             'title': chunk['name'],
             'type': chunk['type'],
-            'path': chunk['html_path'],
+            'path': path,
             'score': float(scores[idx]),
             'source': 'semantic',
         })
@@ -165,6 +178,9 @@ def hybrid_search(query, limit=30, k=60):
             scores[path]['result']['source'] = 'keyword'
         else:
             scores[path]['result']['source'] = 'both'
+            # Carry over text snippet from keyword result if missing
+            if r.get('text') and not scores[path]['result'].get('text'):
+                scores[path]['result']['text'] = r['text']
         scores[path]['score'] += rrf
 
     merged = sorted(scores.values(), key=lambda x: x['score'], reverse=True)

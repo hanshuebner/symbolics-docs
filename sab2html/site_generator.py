@@ -9,7 +9,7 @@ import time
 from .sab_reader import read_sab
 from .sab_types import SageRecord, SageFunctionSpec
 from .xml_emitter import emit_xml
-from .html_renderer import render_records_to_html
+from .html_renderer import render_records_to_html, _slugify
 from .cross_references import RecordRegistry
 from xml.sax.saxutils import escape as xml_escape
 
@@ -104,10 +104,11 @@ def generate_site(sab_dir: str, output_dir: str, emit_xml_files=False):
                     if isinstance(name, SageFunctionSpec):
                         name = name.name
                     text = _extract_text(record)
+                    slug = _slugify(name)
                     search_entries.append({
                         'title': str(name),
                         'type': str(record.type),
-                        'path': html_relpath,
+                        'path': html_relpath + '#' + slug,
                         'file': relpath,
                         'text': text[:300],
                     })
