@@ -303,7 +303,8 @@ def _render_envr(envr, ctx):
 
     # Structure environments
     if name == 'example':
-        return f'<div class="example"><pre>{content}</pre></div>'
+        raw = _render_content_list_raw(envr.contents_list, ctx)
+        return f'<div class="example"><pre>{raw.strip()}</pre></div>'
     if name == 'display':
         raw = _render_content_list_raw(envr.contents_list, ctx)
         return f'<div class="display">{raw.strip()}</div>'
@@ -326,6 +327,8 @@ def _render_envr(envr, ctx):
     if name == 'multiple':
         return f'<div class="multiple">{content}</div>'
     if name == 'commentary':
+        if not content:
+            return ''
         return f'<div class="commentary">{content}</div>'
 
     # Heading environments
