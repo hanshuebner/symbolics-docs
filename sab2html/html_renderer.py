@@ -114,7 +114,7 @@ def render_records_to_html(records, index=None, registry=None, current_file=None
         f'    <a href="{{{{INDEX_PATH}}}}" class="header-logo">\n'
         f'      <img src="{{{{LOGO_PATH}}}}" alt="Symbolics">\n'
         f'    </a>\n'
-        f'    <span class="header-title">Symbolics Portable Genera 9.0 Documentation</span>\n'
+        f'    <span class="header-title">Portable Genera 9.0 Documentation</span>\n'
         f'  </div>\n'
         f'  <div class="header-search">\n'
         f'    <input type="text" id="header-search-input" placeholder="Search documentation..." autocomplete="off">\n'
