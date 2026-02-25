@@ -214,6 +214,26 @@ def _resolve_l_command(param_text, ctx):
     return None
 
 
+def _render_content_list_raw(contents, ctx):
+    """Render a list of content items to HTML without paragraph fixup.
+
+    Paragraph markers in text strings become newlines instead of <p> tags,
+    since this is used for pre-wrap environments like display.
+    """
+    if not contents:
+        return ''
+    cleaned = []
+    for item in contents:
+        if isinstance(item, str):
+            cleaned.append(item.replace(PARAGRAPH_MARKER, '\n'))
+        elif item is _PARAGRAPH_MARKER:
+            cleaned.append('\n')
+        else:
+            cleaned.append(item)
+    parts = [_render_sage(item, ctx) for item in cleaned]
+    return ''.join(parts)
+
+
 def _render_content_list(contents, ctx):
     """Render a list of content items to HTML string."""
     if not contents:
@@ -285,7 +305,8 @@ def _render_envr(envr, ctx):
     if name == 'example':
         return f'<div class="example"><pre>{content}</pre></div>'
     if name == 'display':
-        return f'<div class="display">{content}</div>'
+        raw = _render_content_list_raw(envr.contents_list, ctx)
+        return f'<div class="display">{raw.strip()}</div>'
     if name == 'enumerate':
         items = _extract_list_items(envr.contents_list, ctx)
         return f'<ol class="enumerate">{items}</ol>'
@@ -512,6 +533,8 @@ def _render_reference(ref, ctx):
     if isinstance(topic, SageFunctionSpec):
         topic = topic.name
     topic_str = str(topic) if topic else ''
+    # Strip package prefix for display (e.g. 'SCL:STRING-NCONC' -> 'STRING-NCONC')
+    display_str = _strip_package_prefix(topic_str) if topic_str else ''
 
     appearance = ref.appearance
     booleans = ref.booleans if ref.booleans else []
@@ -522,14 +545,14 @@ def _render_reference(ref, ctx):
 
     if appearance == 'topic':
         href = _resolve_href(ref, ctx)
-        return f'<span class="ref-topic">\u201c<a href="{href}">{xml_escape(topic_str)}</a>\u201d</span>\n'
+        return f'<span class="ref-topic">\u201c<a href="{href}">{xml_escape(display_str)}</a>\u201d</span>\n'
 
     if appearance == 'see':
         href = _resolve_href(ref, ctx)
-        type_str = str(ref.type) if ref.type else ''
+        type_str = _strip_package_prefix(str(ref.type)) if ref.type else ''
         cap_s = 'S' if 'initial-cap' in str(booleans) else 's'
         period = '.' if 'final-period' in str(booleans) else ''
-        return f'<span class="ref-see">{cap_s}ee the {xml_escape(type_str)} <a href="{href}">{xml_escape(topic_str)}</a>{period}</span>\n'
+        return f'<span class="ref-see">{cap_s}ee the {xml_escape(type_str)} <a href="{href}">{xml_escape(display_str)}</a>{period}</span>\n'
 
     # Default: check callee type from record
     app_lower = str(appearance).lower() if appearance else ''
@@ -538,27 +561,27 @@ def _render_reference(ref, ctx):
 
         if callee_type in ('expand', 'Expand'):
             href = _resolve_href(ref, ctx)
-            return f'<div class="ref-expand"><a href="{href}">{xml_escape(topic_str)}</a></div>\n'
+            return f'<div class="ref-expand"><a href="{href}">{xml_escape(display_str)}</a></div>\n'
 
         if callee_type == 'topic':
             href = _resolve_href(ref, ctx)
-            return f'<span class="ref-topic">\u201c<a href="{href}">{xml_escape(topic_str)}</a>\u201d</span>\n'
+            return f'<span class="ref-topic">\u201c<a href="{href}">{xml_escape(display_str)}</a>\u201d</span>\n'
 
         if callee_type in ('crossreference', 'CrossRef', 'crossref'):
             href = _resolve_href(ref, ctx)
-            return f'<span class="ref-crossref"><a href="{href}">{xml_escape(topic_str)}</a></span>\n'
+            return f'<span class="ref-crossref"><a href="{href}">{xml_escape(display_str)}</a></span>\n'
 
         if callee_type in ('precis', 'contents', 'operation'):
             href = _resolve_href(ref, ctx)
-            return f'<span class="ref-topic">\u201c<a href="{href}">{xml_escape(topic_str)}</a>\u201d</span>\n'
+            return f'<span class="ref-topic">\u201c<a href="{href}">{xml_escape(display_str)}</a>\u201d</span>\n'
 
         # Fallback: just link
         href = _resolve_href(ref, ctx)
-        return f'<a href="{href}">{xml_escape(topic_str)}</a>\n'
+        return f'<a href="{href}">{xml_escape(display_str)}</a>\n'
 
     # Catch-all
     href = _resolve_href(ref, ctx)
-    return f'<a href="{href}">{xml_escape(topic_str)}</a>\n'
+    return f'<a href="{href}">{xml_escape(display_str)}</a>\n'
 
 
 def _get_callee_type(ref, ctx):
@@ -673,6 +696,27 @@ def _fix_up_tabs(lst):
     return result
 
 
+_BLOCK_ENVRS = frozenset({
+    'example', 'display', 'enumerate', 'itemize', 'verbatim',
+    'description', 'center', 'figure', 'group', 'multiple',
+    'commentary', 'header', 'heading', 'majorheading',
+    'lisp:format', 'common-lisp:format', 'global:format',
+})
+
+
+def _is_block_envr(el):
+    """Return True if el is a SageEnvr that renders as a block-level element."""
+    return isinstance(el, SageEnvr) and str(el.name) in _BLOCK_ENVRS
+
+
+def _flush_paragraph(this_p, result):
+    """Flush accumulated inline content as a nex-paragraph if non-empty."""
+    if this_p is not None:
+        filtered = [x for x in this_p if not (isinstance(x, str) and not x)]
+        if filtered:
+            result.append(SageEnvr(name='nex-paragraph', mods=[], contents_list=filtered))
+
+
 def _fix_up_paragraphs(lst):
     """Group content between paragraph markers into paragraph environments."""
     if _PARAGRAPH_MARKER not in lst:
@@ -683,20 +727,18 @@ def _fix_up_paragraphs(lst):
 
     for el in lst:
         if el is _PARAGRAPH_MARKER:
-            if this_p is not None:
-                filtered = [x for x in this_p if not (isinstance(x, str) and not x)]
-                if filtered:
-                    result.append(SageEnvr(name='nex-paragraph', mods=[], contents_list=filtered))
+            _flush_paragraph(this_p, result)
             this_p = None
+        elif _is_block_envr(el):
+            _flush_paragraph(this_p, result)
+            this_p = None
+            result.append(el)
         else:
             if this_p is None:
                 this_p = []
             this_p.append(el)
 
-    if this_p is not None:
-        filtered = [x for x in this_p if not (isinstance(x, str) and not x)]
-        if filtered:
-            result.append(SageEnvr(name='nex-paragraph', mods=[], contents_list=filtered))
+    _flush_paragraph(this_p, result)
 
     return result
 
